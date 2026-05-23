@@ -6,7 +6,7 @@ on:
       - "backend/**"
       - "frontend/**"
   push:
-    branches: [main]
+    branches: [main, "release/**"]
 
 jobs:
   backend:

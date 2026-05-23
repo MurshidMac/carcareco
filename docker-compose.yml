@@ -40,6 +40,11 @@ services:
   web:
     env_file:
       - frontend/.env
+    environment:
+      # Server-side fetches run inside the compose network
+      API_URL: http://api:15567
+      # Browser runs on the host and uses the published API port
+      NEXT_PUBLIC_API_URL: http://localhost:15567
     build:
       context: .
       dockerfile: frontend/Dockerfile

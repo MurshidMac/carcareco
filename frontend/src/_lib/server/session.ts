@@ -22,14 +22,14 @@ interface SessionPayload extends JWTPayload{
 }
  
  async function decrypt(session: string | undefined = '') {
+  if (!session) return null
   try {
     const { payload } = await jwtVerify(session, encodedKey, {
       algorithms: ['HS256'],
     })
     return payload
-  } catch (error) {
-    console.log('Failed to verify session')
-    console.log(error)
+  } catch {
+    return null
   }
 }
 export async function createSession(rootJwt: string,publicJwt: string) {
@@ -71,10 +71,16 @@ export async function deleteSession() {
   cookieStore.delete('session_timestamp')
 }
 export async function getJwt() { 
-  const session = (await cookies()).get('session')?.value;
+  const cookieStore = await cookies()
+  const session = cookieStore.get('session')?.value;
   const payload = await decrypt(session)
  
-  if (!session || !payload || !payload.apiRootJwt) {
+  if (!session || !payload?.apiRootJwt) {
+    if (session) {
+      cookieStore.delete('session')
+      cookieStore.delete('jwt')
+      cookieStore.delete('session_timestamp')
+    }
     return null
   }
   return payload.apiRootJwt;

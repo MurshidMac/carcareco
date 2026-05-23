@@ -21,6 +21,8 @@ $SessionSecret  = [Convert]::ToBase64String((1..32 | ForEach-Object {Get-Random 
 # Update .env
 (Get-Content $EnvTarget) -replace '^SERVER_SECRET=.*', "SERVER_SECRET=$ConsumerSecret" |
                         ForEach-Object {$_ -replace '^SESSION_SECRET=.*', "SESSION_SECRET=$SessionSecret"} |
+                        ForEach-Object {$_ -replace '^API_URL=.*', 'API_URL=http://localhost:15567'} |
+                        ForEach-Object {$_ -replace '^NEXT_PUBLIC_API_URL=.*', 'NEXT_PUBLIC_API_URL=http://localhost:15567'} |
     Set-Content $EnvTarget
 
 Write-Host "Secrets generated and applied to:"
