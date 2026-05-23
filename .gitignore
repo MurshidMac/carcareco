@@ -1,2 +1,5 @@
 backend/src/Carmasters.Http.Api/dist/
 backend/src/DbUp/dist/
+scripts/node_modules/
+frontend/.env
+backend/src/Carmasters.Http.Api/appsettings.Secrets.json

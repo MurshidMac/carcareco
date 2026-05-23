@@ -25,7 +25,11 @@ async function apiCall({
     const jwt = await getJwt(); 
     requestHeaders["Authorization"] =  'Bearer ' + jwt;
   } 
-  const fullUrl = process.env.API_URL +`/api/${url}`;
+  const apiBase = process.env.API_URL;
+  if (!apiBase) {
+    throw new Error('API_URL env not set (use http://localhost:15567 for local dev)');
+  }
+  const fullUrl = `${apiBase}/api/${url}`;
   const request = {
     method,
     headers: requestHeaders,

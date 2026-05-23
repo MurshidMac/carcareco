@@ -20,6 +20,8 @@ rm $APPSETTINGS.bak
 cp ${ENVFILE}.example $ENVFILE
 sed -i.bak "s|SERVER_SECRET=.*|SERVER_SECRET=$CONSUMER_SECRET|" $ENVFILE
 sed -i.bak "s|SESSION_SECRET=.*|SESSION_SECRET=$SESSION_SECRET|" $ENVFILE
+sed -i.bak "s|API_URL=.*|API_URL=http://localhost:15567|" $ENVFILE
+sed -i.bak "s|NEXT_PUBLIC_API_URL=.*|NEXT_PUBLIC_API_URL=http://localhost:15567|" $ENVFILE
 rm $ENVFILE.bak
 
 echo "✅ Secrets initialized"
