@@ -1,2 +1,3 @@
 backend/src/Carmasters.Http.Api/dist/
 backend/src/DbUp/dist/
+backend/api/node_modules/
