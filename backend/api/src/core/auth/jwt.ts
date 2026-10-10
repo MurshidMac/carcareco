@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 import { config } from '../../config/index.js';
-import { claimsForPrincipal, principalFromClaims, type ClaimBag, type Principal } from './claims.js';
+import { claimsForPrincipal, principalFromClaims, type Principal } from './claims.js';
 import { AppError } from '../errors.js';
 
 const ALG = 'HS256';
@@ -60,7 +60,7 @@ export async function verifyToken(token: string): Promise<Principal> {
     });
   }
 
-  const principal = principalFromClaims(payload as ClaimBag);
+  const principal = principalFromClaims(payload);
   if (!principal) {
     throw new AppError('The access token is missing required claims.', { statusCode: 401 });
   }

@@ -7,9 +7,8 @@ import {
   validatorCompiler,
 } from 'fastify-type-provider-zod';
 import type { FastifyInstance } from 'fastify';
+import fp from 'fastify-plugin';
 import { config } from '../config/index.js';
-// errorResponseSchema not imported; using inline schema above.
-import type { errorResponseSchema } from '../schemas/common.js';
 
 export const BEARER_SECURITY = [{ bearerAuth: [] }] as const;
 
@@ -21,7 +20,7 @@ export const BEARER_SECURITY = [{ bearerAuth: [] }] as const;
  * request validation, response serialization and the published spec, so the
  * documentation cannot drift from behaviour.
  */
-export async function docsPlugin(app: FastifyInstance): Promise<void> {
+async function registerDocs(app: FastifyInstance): Promise<void> {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -72,16 +71,15 @@ export async function docsPlugin(app: FastifyInstance): Promise<void> {
     transformObject: jsonSchemaTransformObject,
   });
 
-  // Published as a first-class route as well, so the document can be fetched
-  // by tooling that expects `/openapi.json` rather than Scalar's sub-path.
-  app.get(config.docs.openapiPath, { schema: { hide: true } }, async () =>
-    app.swagger() as unknown as string,
-  );
+  // Scalar already serves the document under its own route prefix, so this
+  // publishes it at the conventional `/openapi.json` tooling path instead of
+  // colliding with `/docs/openapi.json`.
+  app.get('/openapi.json', { schema: { hide: true } }, async () => app.swagger());
 
   app.log.info(`OpenAPI document available at ${config.docs.openapiPath}`);
 }
 
-export async function scalarPlugin(app: FastifyInstance): Promise<void> {
+async function registerScalar(app: FastifyInstance): Promise<void> {
   // `${routePrefix}/openapi.json`, i.e. `/docs/openapi.json` by default.
   const specSuffix = config.docs.openapiPath.startsWith(`${config.docs.path}/`)
     ? config.docs.openapiPath.slice(config.docs.path.length)
@@ -106,3 +104,16 @@ export async function scalarPlugin(app: FastifyInstance): Promise<void> {
 
   app.log.info(`Scalar API reference available at ${config.docs.path}`);
 }
+
+/**
+ * `fastify-plugin` is required here: without it the plugin is encapsulated and
+ * `@fastify/swagger` would only ever see the routes registered inside this file,
+ * publishing an empty document.
+ */
+export const docsPlugin = fp(registerDocs, { name: 'docs' });
+
+/**
+ * Stays encapsulated so its `/docs/*` routes live in their own scope; it still
+ * sees the root's swagger decorator because child scopes inherit parent ones.
+ */
+export const scalarPlugin = registerScalar;

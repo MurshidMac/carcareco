@@ -42,10 +42,16 @@ export const sparePartPageSchema = pagedResultSchema(
   'A page of spare parts',
 );
 
-/** `UmPriceDto` — the price fetched from the United Motors catalogue. */
+/**
+ * `UmPriceDto` — the price fetched from the United Motors catalogue.
+ *
+ * `PriceFromUm(decimal price, string name, string address)` took all three as
+ * non-nullable, and `domain.unitedmotorsprice.name` is `NOT NULL`, so `name`
+ * and `price` are required here.
+ */
 export const umPriceSchema = z
   .object({
-    name: z.string().nullable().describe('Catalogue description'),
+    name: z.string().describe('Catalogue description'),
     price: z.coerce.number().describe('Catalogue price'),
     address: z.string().nullish().describe('Supplier address'),
   })

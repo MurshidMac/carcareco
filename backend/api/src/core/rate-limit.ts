@@ -106,8 +106,10 @@ export function limitRequests(spec: LimitSpec) {
     reply.header('X-RateLimit-Reset', String(Math.ceil((now + windowMs) / 1000)));
 
     // The .NET middleware updated statistics only after the pipeline ran, so
-    // failed requests never counted towards the limit.
-    request.raw.on('finish', () => {
+    // failed requests never counted towards the limit. `finish` is emitted by
+    // the response stream (`reply.raw`), not by the request stream, so this
+    // must not be attached to `request.raw`.
+    reply.raw.on('finish', () => {
       const current = store.get(key);
       if (current && now - current.lastWindowStart < windowMs && current.count < spec.max) {
         current.count += 1;

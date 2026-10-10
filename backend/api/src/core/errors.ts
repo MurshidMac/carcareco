@@ -32,10 +32,18 @@ export class AppError extends Error {
   }
 
   toBody(): ErrorBody {
+    const details =
+      this.details === undefined
+        ? ''
+        : typeof this.details === 'string'
+          ? this.details
+          : this.details instanceof Error
+            ? (this.details.stack ?? this.details.message)
+            : JSON.stringify(this.details, null, 2);
     return {
       isUserError: this.isUserError,
       exceptionMessage: this.message,
-      exceptionDetails: this.details === undefined ? '' : String(this.details),
+      exceptionDetails: details,
     };
   }
 }

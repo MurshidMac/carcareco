@@ -58,8 +58,12 @@ export class PageQuery {
   constructor(request: PageRequest, options: PageQueryOptions) {
     this.request = request;
     this.options = options;
+    // Seed from the request so callers may pass `searchText` directly; an
+    // explicit `filterBy` still overrides it, as in the .NET fluent builder.
+    this.searchText = request.searchText;
   }
 
+  /** Overrides the search text; `undefined` clears it. */
   filterBy(searchText: string | undefined): this {
     this.searchText = searchText;
     return this;
@@ -87,12 +91,32 @@ export class PageQuery {
   }
 
   /**
-   * Half-open range filter: `>= from` and `< to`, either bound optional.
-   * Used for the work-order start-date and invoice-date filters.
+   * Range filter used by the work-order start-date and invoice-date filters.
+   *
+   * The legacy controller emitted `>= from`, `< to`, or `between from and to`
+   * when both bounds were given, so both ends are inclusive here as well.
+   *
+   * `column` may be a qualified name (`work.startedon`), in which case each
+   * dot-separated part is quoted separately so the generated SQL is
+   * `work.startedon` rather than the single bogus identifier `"work.startedon"`.
+   * Pass a {@link Fragment} instead for anything that is not a plain column —
+   * quoting is skipped entirely then. As with `orderByClause`, a string column
+   * must be a caller constant, never user input.
    */
-  dateRange(column: string, from: string | undefined, to: string | undefined): this {
-    if (from) this.where(sql`${sql.ref(column)} >= ${from}::timestamptz`);
-    if (to) this.where(sql`${sql.ref(column)} < ${to}::timestamptz`);
+  dateRange(column: string | Fragment, from: string | undefined, to: string | undefined): this {
+    const ref =
+      typeof column === 'string'
+        ? sql.raw(
+            column
+              .split('.')
+              .map((part) => `"${part.replace(/"/g, '""')}"`)
+              .join('.'),
+          )
+        : column;
+
+    if (from && to) this.where(sql`${ref} between ${from}::timestamptz and ${to}::timestamptz`);
+    else if (from) this.where(sql`${ref} >= ${from}::timestamptz`);
+    else if (to) this.where(sql`${ref} < ${to}::timestamptz`);
     return this;
   }
 
@@ -128,7 +152,7 @@ export class PageQuery {
    * a second count query, exactly as the original did.
    */
   async execute<T>(db: Kysely<Database>, projection: string): Promise<PageResult<T>> {
-    const result = await this.pageQuery<T>(projection).execute(db);
+    const result = await this.pageQuery(projection).execute(db);
     const rows = Array.isArray(result.rows) ? result.rows : [];
     const hasMore = rows.length > this.request.limit;
     return { hasMore, items: (hasMore ? rows.slice(0, this.request.limit) : rows) as T[] };
@@ -138,8 +162,18 @@ export class PageQuery {
    * The composed page query, for callers that need to embed it further or
    * inspect the generated SQL.
    */
-  pageQuery<T>(_projection: string): RawBuilder<Record<string, unknown>> {
+  pageQuery(projection: string): RawBuilder<Record<string, unknown>> {
+    // Interpolating `undefined` would compile to a `$1` null parameter and
+    // yield invalid SQL, so the optional WHERE clause is spliced conditionally.
     const where = this.whereClause();
+    if (!where) {
+      return sql`
+      select page.* from (${sql.raw(projection)}) as page
+      ${this.orderByClause()}
+      limit ${this.request.limit + 1}
+      offset ${this.request.offset}
+    `;
+    }
     return sql`
       select page.* from (${sql.raw(projection)}) as page
       ${where}

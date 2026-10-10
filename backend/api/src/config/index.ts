@@ -6,8 +6,10 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..', '..');
 
+// `.env.local` first so a developer override wins over the shared `.env`;
+// dotenv never overwrites a variable that is already set.
+loadDotenv({ path: path.join(projectRoot, '.env.local') });
 loadDotenv({ path: path.join(projectRoot, '.env') });
-loadDotenv({ path: path.join(projectRoot, '..', 'Carmasters.Http.Api', 'appsettings.Secrets.json.example') });
 
 const bool = (fallback: boolean) =>
   z
@@ -26,18 +28,22 @@ const int = (fallback: number) =>
  * Shape mirrors the .NET `DbOptions` record so existing appsettings-style
  * configuration can be translated 1:1. `suffix` values are configuration
  * driven (never hardcoded) — see MultiTenancyDbName in the original backend.
+ *
+ * This schema validates the values that `envSchema` already coerced out of the
+ * environment, so it must accept final types (number/boolean) rather than the
+ * string form `int()`/`bool()` expect.
  */
 const dbSchema = z.object({
   host: z.string().min(1),
-  port: int(5432),
+  port: z.number().int(),
   user: z.string().min(1),
   password: z.string(),
   name: z.string().min(1),
   multiTenancy: z.object({
-    enabled: bool(false),
+    enabled: z.boolean(),
     suffix: z.object({
-      tenancy: z.string().min(1).default('tenancy'),
-      template: z.string().min(1).default('template'),
+      tenancy: z.string().min(1),
+      template: z.string().min(1),
     }),
   }),
 });
@@ -77,6 +83,7 @@ const envSchema = z.object({
 
   PDF_DIRECTORY: z.string().default('./pdf'),
   PLAYWRIGHT_CHROMIUM_PATH: z.string().default(''),
+  PG_DUMP_PATH: z.string().default('pg_dump'),
 
   RATE_LIMIT_TENANT_MAX: int(300),
   RATE_LIMIT_TENANT_WINDOW_SECONDS: int(300),
@@ -171,6 +178,8 @@ export const config = {
       : path.join(projectRoot, e.PDF_DIRECTORY),
     chromiumPath: e.PLAYWRIGHT_CHROMIUM_PATH || undefined,
   },
+
+  pgDumpPath: e.PG_DUMP_PATH,
 
   rateLimit: {
     tenant: { max: e.RATE_LIMIT_TENANT_MAX, windowSeconds: e.RATE_LIMIT_TENANT_WINDOW_SECONDS },

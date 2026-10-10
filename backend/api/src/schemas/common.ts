@@ -33,15 +33,17 @@ export const errorResponseSchema = z
 /**
  * Builds a `fastify-type-provider-zod` response entry.
  *
- * The Zod schema must be passed under the `schema` key. Spreading a Zod object
- * (`...errorResponseSchema`) copies its internal fields instead and produces an
- * unusable response definition, so responses are constructed only here.
+ * A response entry must be the Zod schema itself (or `{ properties: schema }`).
+ * Wrapping it as `{ description, schema }` breaks route registration: the
+ * serializer compiler hands the wrapper to fast-json-stringify, which then
+ * chokes on the Zod internals. The description therefore lives on the schema
+ * via `.describe()`, and still reaches the OpenAPI document.
  */
 function errorResponse(
   statusCode: number,
   description: string,
-): Record<number, { description: string; schema: typeof errorResponseSchema }> {
-  return { [statusCode]: { description, schema: errorResponseSchema } };
+): Record<number, typeof errorResponseSchema> {
+  return { [statusCode]: errorResponseSchema.describe(description) };
 }
 
 export const notFoundResponse = errorResponse(404, 'Not found');
@@ -69,17 +71,17 @@ export const internalErrorResponse = errorResponse(
 );
 
 /** Most create/update endpoints answer with the bare id, not an object. */
-export const idSchema = z.string().uuid();
+export const idSchema = z.string().uuid().describe('The identifier of the affected record');
 
 export const idResponseSchema = {
-  200: { description: 'The identifier of the affected record', schema: idSchema },
+  200: idSchema,
 } as const;
 
 /** Shared acknowledgement shape. */
 export const okSchema = z.object({ ok: z.boolean() }).describe('Acknowledged');
 
 export const okResponseSchema = {
-  200: { description: 'Acknowledged', schema: okSchema },
+  200: okSchema,
 } as const;
 
 export const idsBodySchema = z.array(uuidSchema);
@@ -116,7 +118,7 @@ export function pagedResultSchema<T extends z.ZodType>(item: T, description: str
  */
 export function standardResponses(schema: z.ZodType, description: string) {
   return {
-    200: { description, schema },
+    200: schema.describe(description),
     400: validationErrorResponse[400],
     401: unauthorizedResponse[401],
     403: forbiddenResponse[403],

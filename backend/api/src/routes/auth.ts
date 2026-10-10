@@ -1,6 +1,5 @@
-import type { FastifyPluginCallback } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
-import type { FastifyRequest } from 'fastify';
 import { sql } from 'kysely';
 import { z } from 'zod';
 import { config } from '../config/index.js';
@@ -51,7 +50,7 @@ async function resolveFullName(
   return result.rows[0]?.fullName ?? '';
 }
 
-export const authRoutes: FastifyPluginCallback = async (fastify) => {
+export const authRoutes: FastifyPluginAsync = async (fastify) => {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
   /* ====================================================================== */
   /* POST /api/users/authenticate                                            */
@@ -84,7 +83,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
       preHandler: limits.login(),
     },
     async (request, reply) => {
-      const { username, password, serverSecret } = request.body as { username: string; password: string; serverSecret: string };
+      const { username, password, serverSecret } = request.body;
 
       if (config.jwt.consumerSecret !== serverSecret) {
         await sleep(config.loginFailureDelayMs);
@@ -144,7 +143,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
       preHandler: limits.demo(),
     },
     async (request, reply) => {
-      const body = request.body as { companyName?: string | null };
+      const body = request.body;
       const credentials = await new DemoSetupService().createDemoTenant(body.companyName);
       return reply.send(credentials);
     },
@@ -168,7 +167,9 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
         response: {
           200: {
             description: 'JPEG image, possibly zero-length',
-            content: { 'image/jpeg': { schema: { type: 'string', format: 'binary' } } },
+            // The serializer compiler only accepts Zod schemas, so the binary
+            // payload is described as a Buffer rather than a JSON schema.
+            content: { 'image/jpeg': { schema: z.instanceof(Buffer) } },
           },
         },
       },
@@ -181,7 +182,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
       let tenantName: string;
       let employeeId: string;
       try {
-        const params = request.params as { jwt: string };
+        const params = request.params;
         const principal = await verifyToken(params.jwt);
         tenantName = principal.tenantName;
         employeeId = principal.employeeId;
@@ -220,7 +221,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
         response: {
           200: {
             description: 'A newly issued JWT',
-            content: { 'text/plain': { schema: { type: 'string' } } },
+            content: { 'text/plain': { schema: z.string() } },
           },
           401: unauthorizedResponse[401],
           403: forbiddenResponse[403],
@@ -312,7 +313,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
     },
     async (request, reply) => {
       const principal = requireRootPrincipal(request);
-      const body = request.body as any;
+      const body = request.body;
 
       const users = new UserRepository(request.userListDb());
       const user = await users.getByIdentifier(principal.tenantName, principal.employeeId);
@@ -340,8 +341,9 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
           .tenantDb()
           .updateTable('employee')
           .set({
-            ...(body.firstName !== undefined ? { firstname: body.firstName ?? null } : {}),
-            ...(body.lastName !== undefined ? { lastname: body.lastName ?? null } : {}),
+            // Both name columns are NOT NULL, so only overwrite them with real values.
+            ...(body.firstName != null ? { firstname: body.firstName } : {}),
+            ...(body.lastName != null ? { lastname: body.lastName } : {}),
           })
           .where('id', '=', user.employeeId)
           .execute();
@@ -374,8 +376,7 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
     },
     async (request, reply) => {
       const principal = requireRootPrincipal(request);
-      const body = () as unknown as any;
-      const { currentPassword, newPassword, confirmPassword } = body;
+      const { currentPassword, newPassword, confirmPassword } = request.body;
 
       if (!newPassword || newPassword.trim() === '') {
         throw new UserError('New password cannot be empty.');
@@ -386,14 +387,14 @@ export const authRoutes: FastifyPluginCallback = async (fastify) => {
 
       const users = new UserRepository(request.userListDb());
       const user = await users.getByIdentifier(principal.tenantName, principal.employeeId);
-      if (!user?.employeeId || !(await verifyPassword(currentPassword as string, user.password))) {
+      if (!user?.employeeId || !(await verifyPassword(currentPassword, user.password))) {
         throw new UserError('Current password does not match.');
       }
 
       await users.update({
         ...user,
         employeeId: user.employeeId,
-        password: await hashPassword(newPassword as string),
+        password: await hashPassword(newPassword),
       });
 
       return reply.send({ ok: true });

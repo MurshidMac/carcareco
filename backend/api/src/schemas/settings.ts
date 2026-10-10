@@ -104,10 +104,5 @@ export const dbDumpSchema = z
 
 export const okSchema = z.object({ ok: z.boolean() }).describe('Acknowledgement');
 
-export const notFoundSchema = {
-  description: 'Not found',
-  ...errorResponseSchema,
-} as const;
-
-export const notFound = notFoundResponse;
-export { notFoundResponse, unauthorizedResponse };
+/** Re-exported from `common` so every route describes errors the same way. */
+export { notFoundResponse, unauthorizedResponse, errorResponseSchema };

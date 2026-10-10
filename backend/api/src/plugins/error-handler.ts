@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { ZodError } from 'zod';
+import { hasZodFastifySchemaValidationErrors, isResponseSerializationError } from 'fastify-type-provider-zod';
 import fp from 'fastify-plugin';
 import { AppError, TooManyRequestsError, type ErrorBody } from '../core/errors.js';
 
@@ -13,15 +13,37 @@ function bodyFor(error: unknown): { statusCode: number; body: ErrorBody } {
     return { statusCode: error.statusCode, body: error.toBody() };
   }
 
-  if (error instanceof ZodError) {
-    const first = error.issues[0];
-    const where = first?.path.length ? ` (${first.path.join('.')})` : '';
+  // Request validation. `fastify-type-provider-zod` raises a plain
+  // `FastifyError` whose `validation` array holds the Zod issues, so an
+  // `instanceof ZodError` check alone would miss these and let them fall
+  // through to the 500 branch.
+  if (hasZodFastifySchemaValidationErrors(error)) {
+    const messages = error.validation.map((entry) => {
+      const where = entry.instancePath ? ` (${entry.instancePath.replace(/^\//, '').replace(/\//g, '.')})` : '';
+      return `${entry.message ?? 'Invalid input.'}${where}`;
+    });
+
     return {
       statusCode: 400,
       body: {
         isUserError: true,
-        exceptionMessage: `${first?.message ?? 'Validation failed.'}${where}`,
-        exceptionDetails: JSON.stringify(error.issues, null, 2),
+        exceptionMessage: messages.length
+          ? `Invalid input: ${messages.join(', ')}`
+          : 'The request was not valid.',
+        exceptionDetails: JSON.stringify(error.validation, null, 2),
+      },
+    };
+  }
+
+  // A response that does not match its declared Zod schema is a bug in this
+  // service, not the caller's fault, so it stays a 500 but is logged loudly.
+  if (isResponseSerializationError(error)) {
+    return {
+      statusCode: 500,
+      body: {
+        isUserError: false,
+        exceptionMessage: 'The response did not match its declared schema.',
+        exceptionDetails: error.cause?.message ?? '',
       },
     };
   }
@@ -57,8 +79,11 @@ function bodyFor(error: unknown): { statusCode: number; body: ErrorBody } {
     statusCode: 500,
     body: {
       isUserError: false,
-      exceptionMessage: message,
-      exceptionDetails: error instanceof Error ? (error.stack ?? '') : String(error),
+      // The frontend renders `exceptionMessage` in a full-page error view, so
+      // it must stay generic. The stack goes to the log and to
+      // `exceptionDetails`, which the frontend never displays.
+      exceptionMessage: 'An unexpected error occurred while processing the request.',
+      exceptionDetails: `${message}\n${error instanceof Error ? (error.stack ?? '') : String(error)}`,
     },
   };
 }
@@ -84,8 +109,8 @@ async function registerErrorHandler(app: FastifyInstance): Promise<void> {
     if (error instanceof TooManyRequestsError) {
       reply.header('Retry-After', String(error.retryAfterSeconds));
     }
-    if (error instanceof ZodError) {
-      reply.header('X-Validation-Errors', String(error.issues.length));
+    if (hasZodFastifySchemaValidationErrors(error)) {
+      reply.header('X-Validation-Errors', String(error.validation.length));
     }
 
     return reply.status(statusCode).send(body);

@@ -39,6 +39,14 @@ export default tseslint.config(
     },
   },
   {
+    // Command-line entry points: stdout is their output channel, so progress
+    // lines belong on the console rather than through a logger.
+    files: ['src/**/*-cli.ts', 'src/scripts/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+  {
     files: ['**/*.js'],
     ...tseslint.configs.disableTypeChecked,
   },

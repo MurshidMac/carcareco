@@ -295,8 +295,12 @@ export const workPageQuerySchema = z
     workTo: z.string().optional().describe('Exclusive upper bound on the start date'),
     invoiceFrom: z.string().optional(),
     invoiceTo: z.string().optional(),
-    clientId: z.string().optional().describe('Client id filter. Also accepted as `clientiId[value]`.'),
-    vehicleId: z.string().optional().describe('Vehicle id filter. Also accepted as `vehicleId[value]`.'),
+    clientId: uuidSchema.optional().describe('Client id filter. Also accepted as `clientiId[value]`.'),
+    vehicleId: uuidSchema.optional().describe('Vehicle id filter. Also accepted as `vehicleId[value]`.'),
+    // The legacy controller read these bracket-suffixed keys directly off the
+    // query string, and the Angular filter widgets still send that shape.
+    'clientiId[value]': uuidSchema.optional().describe('Alias of `clientId` (sic: legacy spelling).'),
+    'vehicleId[value]': uuidSchema.optional().describe('Alias of `vehicleId`.'),
   })
   .loose()
   .describe('Work order search filters');
