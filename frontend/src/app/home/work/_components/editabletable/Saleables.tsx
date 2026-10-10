@@ -40,6 +40,9 @@ export default function Saleables({
                             <thead>
                                 <tr>
                                     {edit && <th></th>}
+                                    <th className="px-2 py-3.5 text-sm font-semibold whitespace-nowrap text-gray-900">
+                                        Type
+                                    </th>
                                     <th className="py-3.5 pr-3 pl-4   text-sm font-semibold whitespace-nowrap text-gray-900 sm:pl-0"
                                     >Code
                                     </th>
@@ -83,7 +86,7 @@ export default function Saleables({
                             </tbody>
                             {!edit && priceSummary && <tfoot>
                                 <tr>
-                                    <th colSpan={6}>
+                                    <th colSpan={7}>
                                         <div className="grid grid-rows-3 gap-0">
                                             <div className="flex flex-row-reverse " >
 

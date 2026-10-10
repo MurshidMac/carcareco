@@ -11,12 +11,13 @@ import { dataPage } from "@/_lib/client/query-api";
 interface IEditableCodeCellProps<Type extends   string | null> extends IEditableBaseCellProps<Type>
 {
    nameRef: React.RefObject<EditableCellHandle<string>|null> ,
-   priceRef: React.RefObject<EditableCellHandle<number>|null>
+   priceRef: React.RefObject<EditableCellHandle<number>|null>,
+   kindRef?: React.RefObject<EditableCellHandle<string>|null>
 }
 
 const EditableCodeCell = React.forwardRef<EditableCellHandle<string>,IEditableCodeCellProps<string|null>>((props, ref) => {
     const {
-        defaultValue, placeholder, id, name, className, isEditing, nameRef,priceRef
+        defaultValue, placeholder, id, name, className, isEditing, nameRef, priceRef, kindRef
     } = props;
 
     const [internalValue, setInternalValue] = useState(defaultValue);
@@ -48,6 +49,7 @@ const EditableCodeCell = React.forwardRef<EditableCellHandle<string>,IEditableCo
         onItemChange={(item)=>{
             setSelectedItem(item);
            if(item?.code) setInternalValue(item?.code);
+           if(item?.code && kindRef?.current) kindRef.current.setValue('product');
            if(item?.name && nameRef?.current) nameRef?.current.setValue(item?.name);
            if(item?.price && priceRef?.current) priceRef?.current.setValue(item?.price)
         }}

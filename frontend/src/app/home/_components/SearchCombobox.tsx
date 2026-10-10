@@ -14,11 +14,13 @@ interface ISearchComboItem
 export function VehiclesCombobox( {
     name,
     defaultValue,
-    className, 
+    className,
+    onItemChange,
 }:{
     name:string, 
     defaultValue?:ISearchComboItem | null |undefined,
-    className?:string |undefined, 
+    className?:string |undefined,
+    onItemChange?: ISearchComboboxOnItemChange<ISearchComboItem>,
 }){
     return (<SearchCombobox 
         name={name} 
@@ -27,6 +29,7 @@ export function VehiclesCombobox( {
         displayFormatter={(item:IVehicleData)=>{
             return [item.producer,item.model].filter(x=>x).join(' ')+ (!item.regNr?'':` (${item.regNr})`)
         }}
+        onItemChange={onItemChange}
         resourceName="vehicles"
         placeholder="vin, reg nr., owner or make ..." ></SearchCombobox>)
 }

@@ -8,6 +8,12 @@ import clsx from "clsx";
 import { IProduct } from "../../model";
 import { Bars3Icon } from "@heroicons/react/20/solid";
 import { EditableCodeCell } from "./EditableCodeCell";
+import { EditableSelectCell } from "./EditableSelectCell";
+
+const KIND_OPTIONS = [
+    { value: 'product', label: 'Product' },
+    { value: 'service', label: 'Service' },
+];
 
 export type DataItemRowHandle<T> = {
     
@@ -40,6 +46,7 @@ const DataItemRow = React.forwardRef<DataItemRowHandle<IProduct>, IDataItemRowPr
     const { isEditing, index, item,  onDragStart,  onDragEnter,  removeWorkItem } = props; 
    
     const codeRef = React.useRef<EditableCellHandle<string>>(null);
+    const kindRef = React.useRef<EditableCellHandle<string>>(null);
     const nameRef = React.useRef<EditableCellHandle<string>>(null);
     const priceRef = React.useRef<EditableCellHandle<number>>(null);
     const unitRef = React.useRef<EditableCellHandle<string>>(null);
@@ -57,6 +64,7 @@ const DataItemRow = React.forwardRef<DataItemRowHandle<IProduct>, IDataItemRowPr
                 unit: unitRef.current?.getValue()??'',
                 quantity: quantityRef.current?.getValue()??null,
                 discount: discountRef.current?.getValue()??null,
+                kind: (kindRef.current?.getValue() as 'product' | 'service' | null)??'product',
             };
         },
         applyDiscount(value: number) {
@@ -91,6 +99,19 @@ const DataItemRow = React.forwardRef<DataItemRowHandle<IProduct>, IDataItemRowPr
         </td>
         </>}
        
+        <td className={clsx("min-w-24 w-24",tdStyle)} >
+            <EditableSelectCell
+                id={item.id}
+                name='kind'
+                ref={kindRef}
+                defaultValue={item.kind ?? 'product'}
+                options={KIND_OPTIONS}
+                className={clsx("w-full", codeStyle)}
+                isEditing={isEditing}
+                placeholder=""
+            >
+            </EditableSelectCell>
+        </td>
         <td className={clsx("min-w-50 w-50",tdStyle)} >
           
             <EditableCodeCell //todo auto complete 
@@ -103,6 +124,7 @@ const DataItemRow = React.forwardRef<DataItemRowHandle<IProduct>, IDataItemRowPr
                 className={codeStyle}
                 nameRef={nameRef}
                 priceRef={priceRef}
+                kindRef={kindRef}
             >
             </EditableCodeCell>
         </td>

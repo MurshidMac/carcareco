@@ -6,6 +6,7 @@ import { errorHandlerPlugin } from './plugins/error-handler.js';
 import { docsPlugin, scalarPlugin } from './plugins/docs.js';
 import { authRoutes } from './routes/auth.js';
 import { clientRoutes } from './routes/clients.js';
+import { dashboardRoutes } from './routes/dashboard.js';
 import { employeeRoutes } from './routes/employees.js';
 import { inventoryRoutes } from './routes/inventory.js';
 import { optionRoutes } from './routes/options.js';
@@ -47,6 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await fastify.register(vehicleRoutes, { prefix: '/api' });
   await fastify.register(optionRoutes, { prefix: '/api' });
   await fastify.register(systemRoutes, { prefix: '/api' });
+  await fastify.register(dashboardRoutes, { prefix: '/api' });
 
   // Work orders and pricing
   await fastify.register(workRoutes, { prefix: '/api' });

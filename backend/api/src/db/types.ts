@@ -174,6 +174,7 @@ export interface DomainTables {
   serviceoffered: {
     id: Uuid;
     offerid: Uuid;
+    jnr: SmallInt;
   };
 
   productoffered: {
@@ -189,6 +190,7 @@ export interface DomainTables {
     repairjobid: Uuid;
     notes: NullableString;
     mechanicid: NullableUuid;
+    jnr: SmallInt;
   };
 
   productinstalled: {

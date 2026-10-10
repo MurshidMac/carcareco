@@ -23,6 +23,7 @@ export async function createOrUpdateProducts(formData: FormData) {
     const quantities = formData.getAll('quantity');
     const units = formData.getAll('unit');
     const discount = formData.getAll('discount');
+    const kinds = formData.getAll('kind');
     const body = ids.map((id,index)=>{
         if(id.toString().startsWith('-')){
             //unsaved value
@@ -36,6 +37,7 @@ export async function createOrUpdateProducts(formData: FormData) {
             quantity:+quantities[index],
             unit:units[index],
             discount:+discount[index],
+            kind:kinds[index],
         } as IProduct
     })
 

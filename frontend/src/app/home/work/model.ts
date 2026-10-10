@@ -93,6 +93,7 @@ export interface IProduct
     price:    number| null;
     discount: number| null;
     code:     string;
+    kind?:    'product' | 'service';
     
 }
 export interface IMechanic{

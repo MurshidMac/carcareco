@@ -4,6 +4,7 @@ import { DescriptionItem } from '@/_components/DescriptionItem';
 import { httpGet } from '@/_lib/server/query-api'
 import Main from '../../_components/Main'; 
 import DisplayOptionsMenu from '@/_components/DisplayOptionsMenu';
+import HistoryLink from '@/_components/HistoryLink';
 import { IVehicleData } from '../model';
 import { CardHeader } from '@/_components/Card';
 
@@ -23,7 +24,10 @@ export default async function Page({
         <Main header={
             <CardHeader  >
                  <h3 className="px-1 text-base font-semibold text-gray-900">Vehicle Information</h3>
-                <DisplayOptionsMenu id={id} pageName='vehicles'></DisplayOptionsMenu>
+                <div className="flex items-center gap-x-2">
+                    <HistoryLink id={id} pageName='vehicles'></HistoryLink>
+                    <DisplayOptionsMenu id={id} pageName='vehicles'></DisplayOptionsMenu>
+                </div>
             </CardHeader>}>
             <dl className="divide-y divide-gray-100"> 
                 <DescriptionItem label='Car make and model' value={[vehicle.producer, vehicle.model].join(' ')}></DescriptionItem>

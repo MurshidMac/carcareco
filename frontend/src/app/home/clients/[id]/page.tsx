@@ -4,6 +4,7 @@ import { DescriptionItem } from '@/_components/DescriptionItem';
 import { httpGet } from '@/_lib/server/query-api'
 import Main from '../../_components/Main'; 
 import DisplayOptionsMenu from '@/_components/DisplayOptionsMenu';
+import HistoryLink from '@/_components/HistoryLink';
 import FormList from '@/_components/FormList';
 import FormListEmailItem from '../_components/FormListEmailItem';
 import { IClientData } from '../model';
@@ -28,7 +29,10 @@ export default async function Page({
                         <BlueBadge text={!client.isPrivate ? ' Company' : ' Private person'}  ></BlueBadge>{' '}
                         {client.isAsshole && <YellowBadge text='complicated' ></YellowBadge>}</h3> 
           
-                <DisplayOptionsMenu id={id} pageName='clients'></DisplayOptionsMenu>
+                <div className="flex items-center gap-x-2">
+                        <HistoryLink id={id} pageName='clients'></HistoryLink>
+                        <DisplayOptionsMenu id={id} pageName='clients'></DisplayOptionsMenu>
+                    </div>
         </CardHeader>}> 
                     <div className="  border-gray-100">
                         <dl className="divide-y divide-gray-100">

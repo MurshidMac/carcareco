@@ -105,7 +105,7 @@ export default function Activity({
         for (let i = 1; i <= count; i++) {
             const negValue = data.filter(x=>x.id.startsWith('-')).map(o => +o.id);
             const nextId = (negValue.length>0 ? Math.min(...negValue) : 0)-1 
-            data.push({ id: nextId.toString(), code: '', discount: null, name: '', price: null, quantity: 1, unit: 'tk' })
+            data.push({ id: nextId.toString(), code: '', discount: null, name: '', price: null, quantity: 1, unit: 'tk', kind: 'service' })
         }
         setData([...data])
        

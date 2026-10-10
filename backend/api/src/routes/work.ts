@@ -93,6 +93,7 @@ export const workRoutes: FastifyPluginAsync = async (fastify) => {
       id: line.id || null,
       code: line.code ?? null,
       name: line.name ?? null,
+      kind: line.kind ?? 'product',
       quantity: line.quantity ?? null,
       unit: line.unit ?? null,
       price: line.price ?? null,

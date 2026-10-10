@@ -38,6 +38,7 @@ export interface SaleableLine {
   id: string | null;
   code: string | null;
   name: string | null;
+  kind: 'product' | 'service';
   quantity: number | null;
   unit: string | null;
   price: number | null;
@@ -147,11 +148,18 @@ export interface WorkPageRequest {
 }
 
 type Kind = 'offer' | 'repairjob';
+/** A line is either a catalogue product or a service/labour line. */
+type LineKind = 'product' | 'service';
 
 /** Table and owning-column pairs for the two activity kinds. */
 const PRODUCT_TABLE: Record<Kind, string> = {
   offer: 'domain.productoffered',
   repairjob: 'domain.productinstalled',
+};
+/** Subtype table for a service line, sharing the owner columns below. */
+const SERVICE_TABLE: Record<Kind, string> = {
+  offer: 'domain.serviceoffered',
+  repairjob: 'domain.serviceperformed',
 };
 const OWNER_COLUMN: Record<Kind, string> = {
   offer: 'offerid',
@@ -214,10 +222,18 @@ export class WorkRepository {
           select 1 from domain.productoffered po
             inner join domain.offer o on o.id = po.offerid
            where o.workid = w.id
+        ) or exists (
+          select 1 from domain.serviceoffered so
+            inner join domain.offer o on o.id = so.offerid
+           where o.workid = w.id
         ) as offerhasproducts,
         exists (
           select 1 from domain.productinstalled pi
             inner join domain.repairjob rj on rj.id = pi.repairjobid
+           where rj.workid = w.id
+        ) or exists (
+          select 1 from domain.serviceperformed sp
+            inner join domain.repairjob rj on rj.id = sp.repairjobid
            where rj.workid = w.id
         ) as jobhasproducts
       FROM domain.work w
@@ -444,6 +460,11 @@ export class WorkRepository {
         ),
         sql` and `,
       );
+      // Service subtypes have no `code` column, so only the name is searched.
+      const serviceRestriction = sql.join(
+        tokens.map((token) => sql`concat_ws(' ', s.name) ilike ${likePattern(token)}`),
+        sql` and `,
+      );
 
       query.where(
         onlyIssued
@@ -453,6 +474,11 @@ export class WorkRepository {
                   inner join domain.saleable s on s.id = p.id
                   inner join domain.repairjob rj on rj.id = p.repairjobid
                  where rj.workid = w.id and ${productRestriction}
+              ) or exists (
+                select 1 from domain.serviceperformed p
+                  inner join domain.saleable s on s.id = p.id
+                  inner join domain.repairjob rj on rj.id = p.repairjobid
+                 where rj.workid = w.id and ${serviceRestriction}
               )
             `
           : sql`
@@ -461,6 +487,11 @@ export class WorkRepository {
                   inner join domain.saleable s on s.id = p.id
                   inner join domain.offer offer on offer.id = p.offerid
                  where offer.workid = w.id and ${productRestriction}
+              ) or exists (
+                select 1 from domain.serviceoffered p
+                  inner join domain.saleable s on s.id = p.id
+                  inner join domain.offer offer on offer.id = p.offerid
+                 where offer.workid = w.id and ${serviceRestriction}
               )
             `,
       );
@@ -585,17 +616,23 @@ export class WorkRepository {
   /** Line items of an offer or a repair job, ordered by line number. */
   async linesOf(kind: Kind, ownerId: string): Promise<SaleableLine[]> {
     const result = await sql<SaleableRow>`
-      select p.id, p.code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+      select 'product'::text as kind, p.id, p.code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
         from ${sql.raw(PRODUCT_TABLE[kind])} p
         inner join domain.saleable s on s.id = p.id
        where p.${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
-       order by p.jnr
+      union all
+      select 'service'::text as kind, p.id, null as code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+        from ${sql.raw(SERVICE_TABLE[kind])} p
+        inner join domain.saleable s on s.id = p.id
+       where p.${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
+       order by jnr, kind
     `.execute(this.db);
 
     return result.rows.map((row) => ({
       id: row.id,
       code: row.code,
       name: row.name,
+      kind: row.kind === 'service' ? 'service' : 'product',
       quantity: row.quantity,
       unit: row.unit,
       price: row.price,
@@ -752,7 +789,6 @@ export class WorkRepository {
     `.execute(tx);
 
     await this.deleteProductLines(tx, 'offer', offerId);
-    await sql`DELETE FROM domain.serviceoffered WHERE offerid = ${offerId}::uuid`.execute(tx);
     await sql`DELETE FROM domain.offer WHERE id = ${offerId}::uuid`.execute(tx);
 
     const estimateId = estimate.rows[0]?.estimateid;
@@ -766,24 +802,25 @@ export class WorkRepository {
 
   private async deleteRepairJobGraph(tx: Kysely<Database>, jobId: string): Promise<void> {
     await this.deleteProductLines(tx, 'repairjob', jobId);
-    await sql`DELETE FROM domain.serviceperformed WHERE repairjobid = ${jobId}::uuid`.execute(tx);
     await sql`DELETE FROM domain.repairjob WHERE id = ${jobId}::uuid`.execute(tx);
   }
 
-  /** Drops the subtype rows and then their shared `saleable` rows. */
+  /** Drops the subtype rows (product and service) and then their shared `saleable` rows. */
   private async deleteProductLines(
     tx: Kysely<Database>,
     kind: Kind,
     ownerId: string,
   ): Promise<void> {
-    const ids = await sql<{ id: string }>`
-      SELECT id FROM ${sql.raw(PRODUCT_TABLE[kind])}
-       WHERE ${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
-    `.execute(tx);
+    for (const table of [PRODUCT_TABLE[kind], SERVICE_TABLE[kind]]) {
+      const ids = await sql<{ id: string }>`
+        SELECT id FROM ${sql.raw(table)}
+         WHERE ${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
+      `.execute(tx);
 
-    for (const { id } of ids.rows) {
-      await sql`DELETE FROM ${sql.raw(PRODUCT_TABLE[kind])} WHERE id = ${id}::uuid`.execute(tx);
-      await sql`DELETE FROM domain.saleable WHERE id = ${id}::uuid`.execute(tx);
+      for (const { id } of ids.rows) {
+        await sql`DELETE FROM ${sql.raw(table)} WHERE id = ${id}::uuid`.execute(tx);
+        await sql`DELETE FROM domain.saleable WHERE id = ${id}::uuid`.execute(tx);
+      }
     }
   }
 
@@ -966,24 +1003,36 @@ export class WorkRepository {
    */
   private async copySaleables(tx: Kysely<Database>, offerId: string, jobId: string): Promise<void> {
     const last = await sql<{ last: number | string | null }>`
-      SELECT max(p.jnr) as last FROM domain.productinstalled p WHERE p.repairjobid = ${jobId}::uuid
+      SELECT greatest(
+        coalesce((SELECT max(jnr) FROM domain.productinstalled WHERE repairjobid = ${jobId}::uuid), 0),
+        coalesce((SELECT max(jnr) FROM domain.serviceperformed  WHERE repairjobid = ${jobId}::uuid), 0)
+      ) as last
     `.execute(tx);
 
     let jnr = Number(last.rows[0]?.last ?? 0);
 
     const lines = await sql<{
-      code: string;
+      kind: string;
+      code: string | null;
       name: string;
       quantity: number;
       unit: string;
       price: number;
       discount: number | null;
     }>`
-      SELECT p.code, s.name, s.quantity, s.unit, s.price, s.discount
-        FROM domain.productoffered p
-        inner join domain.saleable s on s.id = p.id
-       WHERE p.offerid = ${offerId}::uuid
-       ORDER BY p.jnr
+      SELECT kind, code, name, quantity, unit, price, discount
+        FROM (
+          SELECT 'product'::text as kind, p.code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+            FROM domain.productoffered p
+            inner join domain.saleable s on s.id = p.id
+           WHERE p.offerid = ${offerId}::uuid
+          union all
+          SELECT 'service'::text as kind, null as code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+            FROM domain.serviceoffered p
+            inner join domain.saleable s on s.id = p.id
+           WHERE p.offerid = ${offerId}::uuid
+        ) lines
+       ORDER BY jnr, kind
     `.execute(tx);
 
     for (const line of lines.rows) {
@@ -993,10 +1042,15 @@ export class WorkRepository {
         INSERT INTO domain.saleable (id, name, quantity, unit, price, discount)
         VALUES (${lineId}::uuid, ${line.name}, ${line.quantity}, ${line.unit}, ${line.price}, ${line.discount})
       `.execute(tx);
-      await sql`
-        INSERT INTO domain.productinstalled (id, repairjobid, jnr, code, notes, status)
-        VALUES (${lineId}::uuid, ${jobId}::uuid, ${jnr}, ${line.code}, null, 1)
-      `.execute(tx);
+      await this.insertSubtype(
+        tx,
+        'repairjob',
+        line.kind === 'service' ? 'service' : 'product',
+        lineId,
+        jobId,
+        jnr,
+        line.code ?? '',
+      );
     }
   }
 
@@ -1030,9 +1084,11 @@ export class WorkRepository {
         const unit = line.unit ?? '';
         const code = line.code ?? '';
         const discount = line.discount ?? null;
+        const lineKind: LineKind = line.kind === 'service' ? 'service' : 'product';
 
         const isTransient = !line.id || line.id === NIL_UUID;
 
+        let lineId: string | null = null;
         if (!isTransient) {
           const updated = await sql`
             UPDATE domain.saleable
@@ -1042,53 +1098,89 @@ export class WorkRepository {
           `.execute(tx);
 
           if (Number(updated.numAffectedRows ?? 0) > 0) {
-            kept.add(line.id as string);
-            await sql`
-              UPDATE ${sql.raw(PRODUCT_TABLE[kind])}
-                 SET jnr = ${jnr}, code = ${code}
-               WHERE id = ${line.id}::uuid
-            `.execute(tx);
-            continue;
+            lineId = line.id;
           }
           // Unknown id: the posted entity was not transient, so the original
           // would have updated a row that did not exist and silently lost the
           // line. Inserting instead keeps the line visible.
         }
 
-        const newId = randomUUID();
-        await sql`
-          INSERT INTO domain.saleable (id, name, quantity, unit, price, discount)
-          VALUES (${newId}::uuid, ${name}, ${quantity}, ${unit}, ${price}, ${discount})
-        `.execute(tx);
-
-        if (kind === 'offer') {
+        if (!lineId) {
+          lineId = randomUUID();
           await sql`
-            INSERT INTO domain.productoffered (id, offerid, code, jnr)
-            VALUES (${newId}::uuid, ${ownerId}::uuid, ${code}, ${jnr})
-          `.execute(tx);
-        } else {
-          await sql`
-            INSERT INTO domain.productinstalled (id, repairjobid, jnr, code, notes, status)
-            VALUES (${newId}::uuid, ${ownerId}::uuid, ${jnr}, ${code}, null, 1)
+            INSERT INTO domain.saleable (id, name, quantity, unit, price, discount)
+            VALUES (${lineId}::uuid, ${name}, ${quantity}, ${unit}, ${price}, ${discount})
           `.execute(tx);
         }
-        kept.add(newId);
+
+        // A row keeps its id when its kind changes, so clear whichever subtype
+        // row it had and re-insert it under the (possibly new) table.
+        await sql`DELETE FROM ${sql.raw(PRODUCT_TABLE[kind])} WHERE id = ${lineId}::uuid`.execute(tx);
+        await sql`DELETE FROM ${sql.raw(SERVICE_TABLE[kind])} WHERE id = ${lineId}::uuid`.execute(tx);
+        await this.insertSubtype(tx, kind, lineKind, lineId, ownerId, jnr, code);
+
+        kept.add(lineId);
       }
 
-      const stored = await sql<{ id: string }>`
-        SELECT id FROM ${sql.raw(PRODUCT_TABLE[kind])}
-         WHERE ${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
-      `.execute(tx);
+      // Drop every stored line that was not part of the request, from either
+      // subtype table, along with its shared `saleable` row.
+      for (const table of [PRODUCT_TABLE[kind], SERVICE_TABLE[kind]]) {
+        const stored = await sql<{ id: string }>`
+          SELECT id FROM ${sql.raw(table)}
+           WHERE ${sql.raw(OWNER_COLUMN[kind])} = ${ownerId}::uuid
+        `.execute(tx);
 
-      for (const row of stored.rows) {
-        if (kept.has(row.id)) continue;
-        await sql`DELETE FROM ${sql.raw(PRODUCT_TABLE[kind])} WHERE id = ${row.id}::uuid`.execute(tx);
-        await sql`DELETE FROM domain.saleable WHERE id = ${row.id}::uuid`.execute(tx);
+        for (const row of stored.rows) {
+          if (kept.has(row.id)) continue;
+          await sql`DELETE FROM ${sql.raw(table)} WHERE id = ${row.id}::uuid`.execute(tx);
+          await sql`DELETE FROM domain.saleable WHERE id = ${row.id}::uuid`.execute(tx);
+        }
       }
 
       // Both `PutProductsOrServices*` actions ended with `Work.Changed()`.
       await this.touch(tx, kind, ownerId);
     });
+  }
+
+  /**
+   * Inserts the subtype row that turns a `saleable` into a product or service
+   * line of an offer or a repair job.
+   */
+  private async insertSubtype(
+    tx: Kysely<Database>,
+    kind: Kind,
+    lineKind: LineKind,
+    id: string,
+    ownerId: string,
+    jnr: number,
+    code: string,
+  ): Promise<void> {
+    if (lineKind === 'product') {
+      if (kind === 'offer') {
+        await sql`
+          INSERT INTO domain.productoffered (id, offerid, code, jnr)
+          VALUES (${id}::uuid, ${ownerId}::uuid, ${code}, ${jnr})
+        `.execute(tx);
+      } else {
+        await sql`
+          INSERT INTO domain.productinstalled (id, repairjobid, jnr, code, notes, status)
+          VALUES (${id}::uuid, ${ownerId}::uuid, ${jnr}, ${code}, null, 1)
+        `.execute(tx);
+      }
+      return;
+    }
+
+    if (kind === 'offer') {
+      await sql`
+        INSERT INTO domain.serviceoffered (id, offerid, jnr)
+        VALUES (${id}::uuid, ${ownerId}::uuid, ${jnr})
+      `.execute(tx);
+    } else {
+      await sql`
+        INSERT INTO domain.serviceperformed (id, repairjobid, jnr, notes, mechanicid)
+        VALUES (${id}::uuid, ${ownerId}::uuid, ${jnr}, null, null)
+      `.execute(tx);
+    }
   }
 
   /**
@@ -1161,19 +1253,25 @@ export class WorkRepository {
       const invoiceId = randomUUID();
 
       const lines = await sql<PricingLineSource>`
-        SELECT s.name, s.quantity, s.unit, s.price, s.discount
-          FROM domain.repairjob rj
-          inner join domain.productinstalled pi ON pi.repairjobid = rj.id
-          inner join domain.saleable s ON s.id = pi.id
-         WHERE rj.workid = ${input.workId}::uuid
-         ORDER BY rj.ordernr, pi.jnr
+        SELECT name, quantity, unit, price, discount
+          FROM (
+            SELECT rj.ordernr AS workordernr, pi.jnr AS jnr, s.name, s.quantity, s.unit, s.price, s.discount
+              FROM domain.repairjob rj
+              inner join domain.productinstalled pi ON pi.repairjobid = rj.id
+              inner join domain.saleable s ON s.id = pi.id
+             WHERE rj.workid = ${input.workId}::uuid
+            union all
+            SELECT rj.ordernr AS workordernr, sp.jnr AS jnr, s.name, s.quantity, s.unit, s.price, s.discount
+              FROM domain.repairjob rj
+              inner join domain.serviceperformed sp ON sp.repairjobid = rj.id
+              inner join domain.saleable s ON s.id = sp.id
+             WHERE rj.workid = ${input.workId}::uuid
+          ) worklines
+         ORDER BY workordernr, jnr
       `.execute(tx);
 
-      await sql`
-        INSERT INTO domain.invoice (id, number, paymenttype, duedays, ispaid, iscredited)
-        VALUES (${invoiceId}::uuid, ${number}, ${input.paymentType}, ${input.dueDays}, false, false)
-      `.execute(tx);
-
+      // `domain.invoice.id` references `domain.pricing`, so the base row has to
+      // be inserted first.
       await sql`
         INSERT INTO domain.pricing
           (id, senton, printedon, email, partyname, partyaddress, partycode,
@@ -1188,6 +1286,11 @@ export class WorkRepository {
           now(),
           ${input.issuerId}::uuid
         )
+      `.execute(tx);
+
+      await sql`
+        INSERT INTO domain.invoice (id, number, paymenttype, duedays, ispaid, iscredited)
+        VALUES (${invoiceId}::uuid, ${number}, ${input.paymentType}, ${input.dueDays}, false, false)
       `.execute(tx);
 
       await this.insertPricingLines(tx, input.vatRate, invoiceId, lines.rows);
@@ -1241,21 +1344,22 @@ export class WorkRepository {
         offerOrderNr = Number(copied.rows[0]?.ordernr ?? 0);
       }
 
-      // `Offer.DisplayVehicleOnEstimate` ran before the estimate was built, so the
-      // flag always took the posted value.
-      await sql`
-        UPDATE domain.offer SET
-          estimateid = ${estimateId}::uuid,
-          isvehilelinesonestimate = ${input.showVehicleOnPricing}
-        WHERE id = ${offerId}::uuid
-      `.execute(tx);
-
+      // Lines of the (possibly just-copied) offer, products and services
+      // interleaved by their stored line number.
       const lines = await sql<PricingLineSource>`
-        SELECT s.name, s.quantity, s.unit, s.price, s.discount
-          FROM domain.productoffered p
-          inner join domain.saleable s ON s.id = p.id
-         WHERE p.offerid = ${offerId}::uuid
-         ORDER BY p.jnr
+        SELECT name, quantity, unit, price, discount
+          FROM (
+            SELECT p.jnr AS jnr, s.name, s.quantity, s.unit, s.price, s.discount
+              FROM domain.productoffered p
+              inner join domain.saleable s ON s.id = p.id
+             WHERE p.offerid = ${offerId}::uuid
+            union all
+            SELECT sp.jnr AS jnr, s.name, s.quantity, s.unit, s.price, s.discount
+              FROM domain.serviceoffered sp
+              inner join domain.saleable s ON s.id = sp.id
+             WHERE sp.offerid = ${offerId}::uuid
+          ) offerlines
+         ORDER BY jnr
       `.execute(tx);
 
       const number = estimateNumber(Number(work.number), offerOrderNr);
@@ -1292,6 +1396,15 @@ export class WorkRepository {
 
       await sql`
         INSERT INTO domain.estimate (id, number) VALUES (${estimateId}::uuid, ${number})
+      `.execute(tx);
+
+      // `Offer.DisplayVehicleOnEstimate` ran before the estimate was built, so the
+      // flag always took the posted value; the estimate row now exists for the FK.
+      await sql`
+        UPDATE domain.offer SET
+          estimateid = ${estimateId}::uuid,
+          isvehilelinesonestimate = ${input.showVehicleOnPricing}
+        WHERE id = ${offerId}::uuid
       `.execute(tx);
 
       await this.insertPricingLines(tx, input.vatRate, estimateId, lines.rows);
@@ -1518,12 +1631,20 @@ export class WorkRepository {
     sourceId: string,
     targetId: string,
   ): Promise<void> {
-    const lines = await sql<PricingLineSource & { code: string; jnr: number }>`
-      SELECT p.code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
-        FROM ${sql.raw(PRODUCT_TABLE[kind])} p
-        inner join domain.saleable s ON s.id = p.id
-       WHERE p.${sql.raw(OWNER_COLUMN[kind])} = ${sourceId}::uuid
-       ORDER BY p.jnr
+    const lines = await sql<PricingLineSource & { code: string | null; jnr: number; kind: string }>`
+      SELECT kind, code, jnr, name, quantity, unit, price, discount
+        FROM (
+          SELECT 'product'::text as kind, p.code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+            FROM ${sql.raw(PRODUCT_TABLE[kind])} p
+            inner join domain.saleable s ON s.id = p.id
+           WHERE p.${sql.raw(OWNER_COLUMN[kind])} = ${sourceId}::uuid
+          union all
+          SELECT 'service'::text as kind, null as code, p.jnr, s.name, s.quantity, s.unit, s.price, s.discount
+            FROM ${sql.raw(SERVICE_TABLE[kind])} p
+            inner join domain.saleable s ON s.id = p.id
+           WHERE p.${sql.raw(OWNER_COLUMN[kind])} = ${sourceId}::uuid
+        ) lines
+       ORDER BY jnr, kind
     `.execute(tx);
 
     for (const line of lines.rows) {
@@ -1533,17 +1654,15 @@ export class WorkRepository {
         VALUES (${lineId}::uuid, ${line.name}, ${line.quantity}, ${line.unit}, ${line.price}, ${line.discount})
       `.execute(tx);
 
-      if (kind === 'offer') {
-        await sql`
-          INSERT INTO domain.productoffered (id, offerid, code, jnr)
-          VALUES (${lineId}::uuid, ${targetId}::uuid, ${line.code}, ${line.jnr})
-        `.execute(tx);
-      } else {
-        await sql`
-          INSERT INTO domain.productinstalled (id, repairjobid, jnr, code, notes, status)
-          VALUES (${lineId}::uuid, ${targetId}::uuid, ${line.jnr}, ${line.code}, null, 1)
-        `.execute(tx);
-      }
+      await this.insertSubtype(
+        tx,
+        kind,
+        line.kind === 'service' ? 'service' : 'product',
+        lineId,
+        targetId,
+        line.jnr,
+        line.code ?? '',
+      );
     }
   }
 
@@ -1643,7 +1762,8 @@ interface ActivityRow {
 interface SaleableRow {
   id: string;
   code: string | null;
-  jnr: number;
+  kind?: string | null;
+  jnr?: number | null;
   name: string | null;
   quantity: number | null;
   unit: string | null;

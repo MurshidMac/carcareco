@@ -31,6 +31,10 @@ export const productSchema = z
     ),
     code: z.string().nullish().describe('Catalogue code. Free text for ad-hoc rows.'),
     name: z.string().nullish(),
+    kind: z
+      .enum(['product', 'service'])
+      .default('product')
+      .describe('Whether the line is a catalogue product or a service/labour line'),
     quantity: z.coerce.number().nullish(),
     unit: z.string().nullish().describe('Unit of measure, e.g. `pcs` or `h`'),
     price: z.coerce.number().nullish(),

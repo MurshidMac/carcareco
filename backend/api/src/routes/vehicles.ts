@@ -3,6 +3,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { limits } from '../core/rate-limit.js';
 import { requirePrincipal } from '../plugins/context.js';
+import { NotFoundError } from '../core/errors.js';
 import { pageQuerySchema, standardResponses } from '../schemas/common.js';
 import {
   clientVehicleSchema,
@@ -10,7 +11,9 @@ import {
   vehiclePageSchema,
   vehicleSchema,
 } from '../schemas/vehicles.js';
+import { vehicleHistorySchema } from '../schemas/history.js';
 import { VehicleRepository } from '../db/repositories/vehicles.js';
+import { HistoryRepository } from '../db/repositories/history.js';
 import { registerCrud } from './crud.js';
 
 /**
@@ -55,6 +58,29 @@ export const vehicleRoutes: FastifyPluginAsync = async (fastify) => {
     async (request) => {
       requirePrincipal(request);
       return new VehicleRepository(request.tenantDb()).forClient(request.params.clientId);
+    },
+  );
+
+  app.get(
+    '/vehicles/:id/history',
+    {
+      schema: {
+        tags: ['Vehicles'],
+        summary: 'Get the maintenance history of a vehicle',
+        description:
+          'All work orders on the vehicle chronologically, each with its offers, estimates and invoice.',
+        params: z.object({ id: z.string().uuid() }),
+        response: standardResponses(vehicleHistorySchema, 'The maintenance history of the vehicle'),
+      },
+      preHandler: limits.tenant(),
+    },
+    async (request) => {
+      requirePrincipal(request);
+      const history = await new HistoryRepository(request.tenantDb()).vehicleHistory(
+        request.params.id,
+      );
+      if (!history) throw new NotFoundError('Vehicle');
+      return history;
     },
   );
 

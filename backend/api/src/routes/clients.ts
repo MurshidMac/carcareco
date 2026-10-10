@@ -18,7 +18,9 @@ import {
   legalClientBodySchema,
   privateClientBodySchema,
 } from '../schemas/clients.js';
+import { clientHistorySchema } from '../schemas/history.js';
 import { ClientRepository, type Address, type ClientRecord } from '../db/repositories/clients.js';
+import { HistoryRepository } from '../db/repositories/history.js';
 import { registerCrud } from './crud.js';
 
 /**
@@ -104,6 +106,32 @@ export const clientRoutes: FastifyPluginAsync = async (fastify) => {
       if (!subtype) throw new NotFoundError('Client');
       const resource = subtype === 'private' ? 'privateclients' : 'legalclients';
       return reply.redirect(`/api/${resource}/${request.params.id}`, 302);
+    },
+  );
+
+  /* ====================================================================== */
+  /* /api/clients/{id}/history                                              */
+  /* ====================================================================== */
+  app.get(
+    '/clients/:id/history',
+    {
+      schema: {
+        tags: ['Clients'],
+        summary: 'Get the history of a client',
+        description:
+          'All work orders for the client chronologically, plus the vehicles currently registered to them.',
+        params: z.object({ id: z.string().uuid() }),
+        response: standardResponses(clientHistorySchema, 'The history of the client'),
+      },
+      preHandler: limits.tenant(),
+    },
+    async (request) => {
+      requirePrincipal(request);
+      const history = await new HistoryRepository(request.tenantDb()).clientHistory(
+        request.params.id,
+      );
+      if (!history) throw new NotFoundError('Client');
+      return history;
     },
   );
 
